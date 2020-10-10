@@ -1,0 +1,145 @@
+module au_top (
+
+    //defining all the input and output pins, buttons and leds
+    input clk,              // 100MHz clock
+    input rst_n,            // reset button (active low)
+    output led [8],         // 8 user controllable LEDs
+    input usb_rx,           // USB->Serial input
+    output usb_tx,          // USB->Serial output
+    output io_led [3][8],   // LEDs on IO Shield
+    output io_seg [8],      // 7-segment LEDs on IO Shield
+    output io_sel [4],      // Digit select on IO Shield
+    input io_dip [3][8],     // DIP switches on IO Shield
+    input s_cout_input[2],
+    output a_b_cout_output[3],
+    input a_b_cin_input[3]
+  ) {
+  
+  sig rst;                  // reset signal
+  counter slowclock(#SIZE(1),#DIV(26), .clk(clk), .rst(rst)); //slows down the CLK signal
+  dff register_1[3](#INIT(0), .clk(slowclock.value), .rst(rst)); //stores the result of adder in the register
+  fsm y_controller(.clk(slowclock.value), .rst(rst)) = {S0, S1, S2}; //defining FSM with 3 states
+  three_bit_adder adder; // defining 3-bit adder, which works with the help of register to allow automatic check
+  full_adder add; // defining full adder, takes a, b, cin as input and produces s, cout as output
+  edge_detector slowClockEdge(.clk(clk)); //helps to reduce the chances for our system to go in metastable state
+  .clk(clk) {
+    // The reset conditioner is used to synchronize the reset signal to the FPGA
+    // clock. This ensures the entire FPGA comes out of reset at the same time.
+    reset_conditioner reset_cond;
+  }
+  
+  always {
+    reset_cond.in = ~rst_n; // input raw inverted reset signal
+    rst = reset_cond.out;   // conditioned reset
+    
+    usb_tx = usb_rx;        // loop serial port
+    
+    led = 8h00;             // turn LEDs off
+    a_b_cout_output = 3h00; // clearing all the previous values being output
+    
+    io_led = 3x{{8h00}};    // turn LEDs off
+    io_seg = 8hff;          // turn segments off
+    io_sel = 4hf;           // select no digits
+    
+    slowClockEdge.in = slowclock.value; //slowClockEdge takes value of slowclock to help prevent metastable state
+    
+    adder.y = 3h00; //defining initial values
+	    adder.x = register_1.q; // defining initital values which was stored in the register
+	    adder.cin = b0; // defining initial values 
+	
+    // To make sure our system does not enter metastable state
+    if (slowClockEdge.out == b1){
+	    case (y_controller.q){ // FSM which follows Mealy machine design
+  	    y_controller.S0: // aka Initial state, to make sure there is a smooth progression to automatic or manual state
+        if(io_dip[0][0]){ // if io_dip is equal to 1, its automatic
+          adder.x = 3h00; //setting initial values for 3-bit adder
+          adder.y = 3h00;
+          add.x = adder.s[0]; //giving input to full adder from the output of 3=bit adder
+          add.y = adder.s[1];
+          add.cin = adder.s[2];
+          a_b_cout_output = adder.s; //output to the physical adder created by student
+          io_led[1] = adder.s; // value of a, b and cin assigned to io_led[1]
+          io_led[2][0] = add.s; // displaying the correct s value at io_led[2][0]
+          io_led[2][1] = add.cout; // displaying the correct cout value at io_led[2][1]
+          if(add.s==s_cout_input[0] && add.cout==s_cout_input[1]){ // if the output of physical adder matches the output of full adder (add) 
+            io_led[2][7] = 1; // turn on io_led if the physical adder is working properly
+          }
+      	    y_controller.d = y_controller.S1; // change the state to S1 (automatic)
+        }
+        else{
+          //check input and compare with adder
+          add.x = a_b_cin_input[0]; // using the manual input of buttons and feeding them to full adder
+          add.y = a_b_cin_input[1];
+          add.cin = a_b_cin_input[2];
+          io_led[1] = a_b_cin_input; // value of a, b and cin assigned to io_led[1]
+          io_led[2][0] = add.s; // displaying the correct s value at io_led[2][0]
+          io_led[2][1] = add.cout; // displaying the correct cout value at io_led[2][1]
+          if(add.s==s_cout_input[0] && add.cout==s_cout_input[1]){ // if the output of physical adder matches the output of full adder (add) 
+            io_led[2][7] = 1; // turn on io_led if the physical adder is working properly
+          }
+          y_controller.d = y_controller.S2;
+        }
+      	y_controller.S1: // aka Autmocatic state, checks all the possible inputs and outputs for full adder  
+        if(io_dip[0][0]){ // if io_dip is equal to 1, its automatic
+          adder.y = 3h01; // using previous value from register for adder.x and adding 001 to it
+          add.x = adder.s[0]; //giving input to full adder from the output of 3=bit adder
+          add.y = adder.s[1];
+          add.cin = adder.s[2];
+          a_b_cout_output = adder.s; //output to the physical adder created by student
+          io_led[1] = adder.s; // value of a, b and cin assigned to io_led[1]
+          io_led[2][0] = add.s; // displaying the correct s value at io_led[2][0]
+          io_led[2][1] = add.cout; // displaying the correct cout value at io_led[2][1]
+          if(add.s==s_cout_input[0] && add.cout==s_cout_input[1]){ // if the output of physical adder matches the output of full adder (add) 
+            io_led[2][7] = 1; // turn on io_led if the physical adder is working properly
+          }
+      	    y_controller.d = y_controller.S1; //remain in state S1
+        }
+        else{
+          add.x = a_b_cin_input[0]; // using the manual input of buttons and feeding them to full adder
+          add.y = a_b_cin_input[1];
+          add.cin = a_b_cin_input[2];
+          io_led[1] = a_b_cin_input; // value of a, b and cin assigned to io_led[1]
+          io_led[2][0] = add.s; // displaying the correct s value at io_led[2][0]
+          io_led[2][1] = add.cout; // displaying the correct cout value at io_led[2][1]
+          if(add.s==s_cout_input[0] && add.cout==s_cout_input[1]){ // if the output of physical adder matches the output of full adder (add) 
+            io_led[2][7] = 1; // turn on io_led if the physical adder is working properly
+          }
+          y_controller.d = y_controller.S2; // change the state to S2
+        }
+      	y_controller.S2: // aka Manual State, checks the specific input given by the user
+        if(io_dip[0][0]){ // if io_dip is equal to 1, its automatic
+          adder.x = 3h00; //setting initial values for adder
+          adder.y = 3h00;
+          add.x = adder.s[0]; //giving input to full adder from the output of 3=bit adder
+          add.y = adder.s[1];
+          add.cin = adder.s[2];
+          a_b_cout_output = adder.s; //output to the physical adder created by student
+          io_led[1] = adder.s; // value of a, b and cin assigned to io_led[1]
+          io_led[2][0] = add.s; // displaying the correct s value at io_led[2][0]
+          io_led[2][1] = add.cout; // displaying the correct cout value at io_led[2][1]
+          if(add.s==s_cout_input[0] && add.cout==s_cout_input[1]){ // if the output of physical adder matches the output of full adder (add) 
+            io_led[2][7] = 1; // turn on io_led if the physical adder is working properly
+          }
+         	y_controller.d = y_controller.S1; // change the state to S1 (automatic)
+        }
+        else{
+          add.x = a_b_cin_input[0]; // using the manual input of buttons and feeding them to full adder
+          add.y = a_b_cin_input[1];
+          add.cin = a_b_cin_input[2];
+          io_led[1] = a_b_cin_input; // value of a, b and cin assigned to io_led[1]
+          io_led[2][0] = add.s; // displaying the correct s value at io_led[2][0]
+          io_led[2][1] = add.cout; // displaying the correct cout value at io_led[2][1]
+          if(add.s==s_cout_input[0] && add.cout==s_cout_input[1]){ // if the output of physical adder matches the output of full adder (add) 
+            io_led[2][7] = 1; // turn on io_led if the physical adder is working properly
+          }
+      	    y_controller.d = y_controller.S2;  // remain in S2 state
+        }
+	     }
+	    register_1.d = adder.s; //stores the new state in the register
+    }
+    else{
+    register_1.d = register_1.q; //if there is a risk of metastable state, the same value is fed again to the register, hoping the value will reach the max or min
+    }
+    adder.cin = b0; //assigning default values
+  }
+}
