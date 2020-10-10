@@ -1,0 +1,21 @@
+module three_bit_adder (
+//defining all the inputs and outputs required for full_adder
+	input x[3],
+	input y[3],
+	input cin,
+	output s[3],
+	output cout
+  ) 
+{
+  full_adder fulladder[3]; // made of 3 full adder 
+
+always 
+  {
+  	fulladder.x = x; // inputing all the x and y values
+	  fulladder.y = y;
+	  fulladder.cin[0] = cin; //input for the first cin value (mostly 0)
+	  fulladder.cin[2:1] = fulladder.cout[1:0]; //feeding the cout value of current full adder to the next full adder
+	  s = fulladder.s; //ouput
+	  cout = fulladder.cout[2]; //output
+  }
+}
